@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@theme {
+  --color-brand-teal: #042c34;
+  --color-brand-orange: #ff7e54;
+  --color-brand-cream: #f8f8f8;
+}
