@@ -402,11 +402,24 @@ async def seed():
     return {"message": "35+ seed places inserted into roamly.db"}
 
 import os
+
+# Serve production frontend build - catch-all SPA route
+# Must be LAST so API routes take priority
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "roamly-frontend", "dist")
 if os.path.exists(frontend_dist):
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="frontend_assets")
+    
+    from fastapi.responses import FileResponse
+    @app.api_route("/{path:path}", methods=["GET"])
+    async def serve_frontend(path: str):
+        """Catch-all route: serves frontend for non-API paths (SPA support)."""
+        if path.startswith("api/"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
