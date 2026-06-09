@@ -6,6 +6,7 @@ import stripe
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import JWTError, jwt
@@ -174,10 +175,7 @@ ZIP_MAP = {
     "33139": (25.7797, -80.1300), # Miami Beach
 }
 
-@app.get("/")
-async def root():
-    return {"message": "Roamly API is running", "docs": "/docs"}
-
+# Endpoints
 @app.post("/api/auth/register")
 async def register(user: UserRegister):
     hashed_pwd = pwd_context.hash(user.password)
@@ -402,6 +400,11 @@ async def seed():
     conn.commit()
     conn.close()
     return {"message": "35+ seed places inserted into roamly.db"}
+
+import os
+frontend_dist = os.path.join(os.path.dirname(__file__), "..", "roamly-frontend", "dist")
+if os.path.exists(frontend_dist):
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 
 
 if __name__ == "__main__":
