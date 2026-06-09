@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Filter, Map as MapIcon, Clock, DollarSign, Star, ChevronRight, List, Loader2 } from 'lucide-react';
+import { Filter, Map as MapIcon, Clock, DollarSign, Star, ChevronRight, List, Loader2, Bookmark, Check } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { useItineraryStore } from '../store/itineraryStore';
+import { useAuthStore } from '../store/authStore';
 import PlaceDetailModal from '../components/PlaceDetailModal';
 
 // Fix Leaflet marker icon issue
@@ -37,14 +38,81 @@ const ItineraryPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<any | null>(null);
+  
+  const [saveName, setSaveName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showSaveInput, setShowSaveInput] = useState(false);
 
-  const { itinerary, isLoading, error, fetchItinerary } = useItineraryStore();
+  const { itinerary, isLoading, error, fetchItinerary, filters, setFilters, saveItinerary } = useItineraryStore();
+  const { isAuthenticated, openAuthModal } = useAuthStore();
+
+  useEffect(() => {
+    if (zip) {
+      setSaveName(`My ${zip} Trip`);
+    }
+  }, [zip]);
 
   useEffect(() => {
     if (zip && itinerary.length === 0) {
       fetchItinerary(zip);
     }
   }, [zip, itinerary.length, fetchItinerary]);
+
+  // Handle filter changes with debounce
+  useEffect(() => {
+    if (!zip) return;
+    
+    const timer = setTimeout(() => {
+      fetchItinerary(zip);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [zip, filters, fetchItinerary]);
+
+  const handleCategoryChange = (catId: string) => {
+    const newCats = filters.categories.includes(catId)
+      ? filters.categories.filter(c => c !== catId)
+      : [...filters.categories, catId];
+    setFilters({ categories: newCats });
+  };
+
+  const handleSave = async () => {
+    if (!isAuthenticated) {
+      openAuthModal();
+      return;
+    }
+    
+    if (!showSaveInput) {
+      setShowSaveInput(true);
+      return;
+    }
+
+    if (!saveName.trim()) return;
+
+    setIsSaving(true);
+    try {
+      await saveItinerary(saveName);
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        setShowSaveInput(false);
+      }, 3000);
+    } catch (err) {
+      alert('Failed to save itinerary');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Unique categories for the UI
+  const uiCategories = [
+    { id: 'food', label: 'Restaurant' },
+    { id: 'shopping', label: 'Shopping' },
+    { id: 'outdoors', label: 'Park' },
+    { id: 'attraction', label: 'Museum' },
+    { id: 'attraction', label: 'Landmark' },
+  ];
 
   const currentDayData = itinerary.find(d => d.day === activeDay) || itinerary[0];
 
@@ -62,7 +130,7 @@ const ItineraryPage: React.FC = () => {
     return `${mins}m`;
   };
 
-  if (isLoading) {
+  if (isLoading && itinerary.length === 0) {
     return (
       <div className="flex-grow flex items-center justify-center bg-gray-50 h-[calc(100vh-64px)]">
         <div className="text-center">
@@ -115,10 +183,17 @@ const ItineraryPage: React.FC = () => {
             <div>
               <h3 className="font-black mb-4 text-[10px] text-gray-400 uppercase tracking-[0.2em] text-left">Categories</h3>
               <div className="space-y-3">
-                {['Restaurant', 'Shopping', 'Park', 'Museum', 'Landmark'].map(cat => (
-                  <label key={cat} className="flex items-center space-x-3 cursor-pointer group">
-                    <input type="checkbox" className="rounded-lg text-brand-teal focus:ring-brand-teal h-5 w-5 border-gray-200" />
-                    <span className="text-gray-600 group-hover:text-brand-teal transition text-sm font-bold">{cat}</span>
+                {uiCategories.map((cat, idx) => (
+                  <label key={`${cat.id}-${idx}`} className="flex items-center space-x-3 cursor-pointer group">
+                    <input 
+                      type="checkbox" 
+                      checked={filters.categories.includes(cat.id)}
+                      onChange={() => handleCategoryChange(cat.id)}
+                      className="rounded-lg text-brand-teal focus:ring-brand-teal h-5 w-5 border-gray-200 cursor-pointer" 
+                    />
+                    <span className={`transition text-sm font-bold ${filters.categories.includes(cat.id) ? 'text-brand-teal' : 'text-gray-600 group-hover:text-brand-teal'}`}>
+                      {cat.label}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -128,7 +203,11 @@ const ItineraryPage: React.FC = () => {
               <h3 className="font-black mb-4 text-[10px] text-gray-400 uppercase tracking-[0.2em] text-left">Price Range</h3>
               <div className="grid grid-cols-4 gap-2">
                 {[1, 2, 3, 4].map(p => (
-                  <button key={p} className="py-2 border border-gray-100 rounded-xl hover:border-brand-teal hover:text-brand-teal font-black transition text-xs">
+                  <button 
+                    key={p} 
+                    onClick={() => setFilters({ maxPrice: filters.maxPrice === p ? null : p })}
+                    className={`py-2 border rounded-xl font-black transition text-xs ${filters.maxPrice === p ? 'bg-brand-teal border-brand-teal text-white' : 'border-gray-100 hover:border-brand-teal hover:text-brand-teal'}`}
+                  >
                     {'$'.repeat(p)}
                   </button>
                 ))}
@@ -138,8 +217,15 @@ const ItineraryPage: React.FC = () => {
             <div>
               <h3 className="font-black mb-4 text-[10px] text-gray-400 uppercase tracking-[0.2em] text-left">Features</h3>
               <label className="flex items-center space-x-3 cursor-pointer group">
-                <input type="checkbox" className="rounded-lg text-brand-teal focus:ring-brand-teal h-5 w-5 border-gray-200" />
-                <span className="text-gray-600 group-hover:text-brand-teal transition text-sm font-bold">Kid Friendly</span>
+                <input 
+                  type="checkbox" 
+                  checked={filters.kidFriendly}
+                  onChange={(e) => setFilters({ kidFriendly: e.target.checked })}
+                  className="rounded-lg text-brand-teal focus:ring-brand-teal h-5 w-5 border-gray-200 cursor-pointer" 
+                />
+                <span className={`transition text-sm font-bold ${filters.kidFriendly ? 'text-brand-teal' : 'text-gray-600 group-hover:text-brand-teal'}`}>
+                  Kid Friendly
+                </span>
               </label>
             </div>
           </div>
@@ -149,12 +235,50 @@ const ItineraryPage: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-grow flex flex-col overflow-hidden bg-gray-50">
         <header className="bg-white border-b border-gray-100 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 z-10 shrink-0 text-left">
-          <div>
-            <h1 className="text-2xl font-black text-brand-teal leading-tight tracking-tight">Itinerary for {zip}</h1>
-            <p className="text-gray-400 text-sm font-bold">Showing top-ranked spots for your visit.</p>
+          <div className="flex items-center space-x-4">
+             <div className="lg:hidden">
+              <button 
+                className="p-2 border border-gray-100 rounded-xl bg-white shadow-sm" 
+                onClick={() => setShowFilters(true)}
+              >
+                <Filter className="w-5 h-5 text-brand-teal" />
+              </button>
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-brand-teal leading-tight tracking-tight">Itinerary for {zip}</h1>
+              <p className="text-gray-400 text-sm font-bold">Showing top-ranked spots for your visit.</p>
+            </div>
           </div>
 
           <div className="flex items-center space-x-4">
+            {/* Save Button & Input */}
+            <div className="flex items-center space-x-2">
+              {showSaveInput && (
+                <input 
+                  type="text"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  className="px-4 py-2 border-2 border-brand-teal/20 focus:border-brand-teal rounded-xl outline-none font-bold text-sm w-48 transition-all"
+                  placeholder="Trip Name"
+                  autoFocus
+                />
+              )}
+              <button 
+                onClick={handleSave}
+                disabled={isSaving}
+                className={`flex items-center px-6 py-2.5 rounded-xl transition text-sm font-black shadow-lg ${saveSuccess ? 'bg-green-500 text-white shadow-green-500/20' : 'bg-brand-orange text-white shadow-brand-orange/20 hover:bg-orange-600'}`}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : saveSuccess ? (
+                  <Check className="w-4 h-4 mr-2" />
+                ) : (
+                  <Bookmark className="w-4 h-4 mr-2" />
+                )}
+                {saveSuccess ? 'Saved!' : showSaveInput ? 'Confirm' : 'Save Trip'}
+              </button>
+            </div>
+
             <div className="flex items-center bg-gray-50 p-1 rounded-2xl border border-gray-100">
               <button 
                 onClick={() => setViewMode('list')}
@@ -171,10 +295,6 @@ const ItineraryPage: React.FC = () => {
                 Map
               </button>
             </div>
-
-            <button className="lg:hidden flex items-center justify-center p-3 border border-gray-100 rounded-2xl bg-white shadow-sm" onClick={() => setShowFilters(!showFilters)}>
-              <Filter className="w-5 h-5 text-brand-teal" />
-            </button>
           </div>
         </header>
 
@@ -199,7 +319,12 @@ const ItineraryPage: React.FC = () => {
         <div className="flex-grow overflow-y-auto p-6 scroll-smooth">
           {currentDayData && currentDayData.items.length > 0 ? (
             <div className={`grid gap-6 ${viewMode === 'map' ? 'lg:grid-cols-2 h-full' : 'grid-cols-1 max-w-4xl mx-auto'}`}>
-              <div className="space-y-6 pb-12 text-left">
+              <div className="space-y-6 pb-12 text-left relative">
+                {isLoading && (
+                   <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-50 flex items-center justify-center rounded-3xl">
+                      <Loader2 className="w-8 h-8 text-brand-teal animate-spin" />
+                   </div>
+                )}
                 {currentDayData.items.map((place, idx) => (
                   <div 
                     key={place.id} 
@@ -270,7 +395,7 @@ const ItineraryPage: React.FC = () => {
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
-                    {currentDayData.items.map((place, i) => (
+                    {currentDayData.items.map((place) => (
                       <Marker 
                         key={place.id} 
                         position={[place.lat, place.lng]}
